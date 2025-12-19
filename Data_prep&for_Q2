@@ -1,0 +1,161 @@
+import pandas as pd
+import os
+import matplotlib.pyplot as plt
+import seaborn as sns
+from lifelines import KaplanMeierFitter, CoxPHFitter
+from lifelines.statistics import logrank_test
+
+
+def clean_dataset(input_file, output_file):
+    # have 4 step
+    # Load data
+    df = pd.read_csv(input_file)
+    # 1. Drop useless or high-missing columns
+    # 'Id' is useless. Others have >40% missing data.
+    cols_to_drop = [
+        'Id',
+        'time_to_art_failure',
+        'cancer',
+        'cd4_week48', 'cd4_week96', 'cd4_week144', 'cd4_week192', 'cd4_week240'
+    ]
+    df_clean = df.drop(columns=cols_to_drop)
+
+    # 2. Logical Imputation
+    # If 'any_chronic_medicine' is empty, the count should be 0
+    df_clean['chronic_disease_meds_count'] = df_clean['chronic_disease_meds_count'].fillna(0)
+
+    # 3. Statistical Imputation
+    # Fill categorical gaps with Mode (most common value)
+    categorical_cols = ['marital', 'employment', 'who3_4', 'vl_suppressed']
+    for col in categorical_cols:
+        if df_clean[col].isnull().sum() > 0:
+            df_clean[col] = df_clean[col].fillna(df_clean[col].mode()[0])
+
+    # Fill numerical gaps with Median (to avoid outlier skew)
+    numerical_cols = ['vl_baseline', 'vl_latest', 'ckd_stage', 'cd4_baseline']
+    for col in numerical_cols:
+        if df_clean[col].isnull().sum() > 0:
+            df_clean[col] = df_clean[col].fillna(df_clean[col].median())
+
+    # 4. Standardization Drop exact duplicates、Save
+    # Fix 'sex' column format (e.g., 'female' -> 'Female')
+    df_clean['sex'] = df_clean['sex'].str.title()
+    df_clean = df_clean.drop_duplicates()
+    df_clean.to_csv(output_file, index=False)
+    print(f"Cleaning done. Saved to {output_file}")
+
+def run_eda_plots(input_file):
+    #Exploratory Data Analysis
+    # to check
+    if not os.path.exists(input_file):
+        print("Error: Cleaned file not found. Run cleaning first.")
+        return
+    # Load the clean data
+    df = pd.read_csv(input_file)
+
+    # Set plot style
+    sns.set(style="whitegrid")
+    plt.figure(figsize=(18, 12))
+
+    # Plot 1: Age Distribution
+    plt.subplot(2, 2, 1)
+    sns.histplot(data=df, x='enrol_age', kde=True, bins=15, color='skyblue')
+    plt.title('Age Distribution (Age at Enrollment)')
+    plt.xlabel('Age')
+
+    # Plot 2: Vital Status
+    plt.subplot(2, 2, 2)
+    sns.countplot(data=df, x='vital_status', hue='vital_status', legend=False, palette='Set2')
+    plt.title('Patient Vital Status')
+    plt.xlabel('Status')
+
+    # Plot 3: Comorbidities by Sex
+    plt.subplot(2, 2, 3)
+    sns.countplot(data=df, x='any_comorbidity', hue='sex', palette='coolwarm')
+    plt.title('Comorbidities Count by Sex')
+    plt.xlabel('Number of Comorbidities')
+    plt.legend(title='Sex')
+
+    # Plot 4: CD4 Baseline vs Outcome
+    plt.subplot(2, 2, 4)
+    sns.boxplot(data=df, x='died', y='cd4_baseline', hue='died', legend=False, palette='Set3')
+    plt.title('Baseline CD4 Count vs. Survival Status')
+    plt.xticks([0, 1], ['Alive', 'Died'])
+    plt.xlabel('Outcome')
+    plt.ylabel('Baseline CD4 Count')
+
+    # Save the plot
+    plt.tight_layout()
+    plt.savefig('eda_summary.png', dpi=300)
+    print("EDA plots saved as 'eda_summary.png'")
+
+def analy_Q2(input_file):
+    if not os.path.exists(input_file):
+        print("Error: Cleaned file not found. Run cleaning first.")
+    df = pd.read_csv(input_file)
+    # Reverse the encoding of bp_prevalent,  the original encoding is 0= sick and 1= not sick
+    df['bp_prevalent'] = 1 - df['bp_prevalent']
+    #  (dibetes_prevalent=1)  (dibetes_prevalent=0)
+    diabetes_group = df[df['dibetes_prevalent'] == 1]
+    no_diabetes_group = df[df['dibetes_prevalent'] == 0]
+
+    kmf_diabetes = KaplanMeierFitter(label='Prevalent Diabetes (Yes)')
+    kmf_no_diabetes = KaplanMeierFitter(label='Prevalent Diabetes (No)')
+
+    plt.figure(figsize=(10, 6))
+    kmf_diabetes.fit(diabetes_group['followup_time_years'],
+                     event_observed=diabetes_group['died']).plot_survival_function(ci_show=False)
+    kmf_no_diabetes.fit(no_diabetes_group['followup_time_years'],
+                        event_observed=no_diabetes_group['died']).plot_survival_function(ci_show=False)
+
+    plt.title('Kaplan-Meier Survival Curve: Diabetes Comparison')
+    plt.xlabel('Time (Years)')
+    plt.ylabel('Survival Probability')
+    plt.grid(True, alpha=0.3)
+    plt.legend(loc='lower left')
+    plt.savefig('Kaplan_Meier_Diabetes_Comparison.png', dpi=300)
+
+    # Log-Rank Test to check statistical significance
+    results = logrank_test(diabetes_group['followup_time_years'], no_diabetes_group['followup_time_years'],
+                           event_observed_A=diabetes_group['died'], event_observed_B=no_diabetes_group['died'])
+    log_rank_p_value = results.p_value
+
+    # Duration: followup_time_years, Event: died
+    # Covariates (3): enrol_age (Continuous), bp_prevalent (Binary), dibetes_prevalent (Binary)
+    cols_for_model = [
+        'followup_time_years', 'died',
+        'enrol_age',
+        'bp_prevalent',
+        'dibetes_prevalent'
+    ]
+    df_model = df[cols_for_model].dropna()
+
+    # Initialize and fit the Cox model
+    cph = CoxPHFitter()
+
+    cph.fit(df_model, duration_col='followup_time_years', event_col='died')
+
+    # Print the model summary
+    print("Log-Rank Test P-Value (Diabetes Comparison): {:.4f}".format(log_rank_p_value))
+
+    # Plot the Hazard Ratios (Forest Plot)
+    plt.figure(figsize=(10, 6))
+    cph.plot()
+    plt.title('Forest Plot of Hazard Ratios (New Focus Cox Model)')
+    plt.grid(True, alpha=0.3)
+    plt.savefig('Cox_Model_New_Focus_Forest_Plot.png', dpi=300)
+
+
+
+# input the  file names
+raw_data = 'S1 Ageing Study Dataset.csv'
+clean_data = 'Cleaned_S1_Ageing_Study_Dataset_Cleaned.csv'
+
+# Step 1: Run Data Cleaning_NC
+clean_dataset(raw_data, clean_data)
+# Step 2: Run EDA Visualization if needed_NC
+run_eda_plots(clean_data)
+# Step 3：answer Q2_NC
+analy_Q2(clean_data)
+
+print("All done!!")
