@@ -6,13 +6,13 @@ Q2: Which clinical characteristics are associated with patient survival time?
 Q3: Which characteristics are most important for predicting viral suppression?
 
 ## Project structure:
-├── S1 Ageing Study Dataset.csv                          # Raw data, original unprocessed HIV patient dataset from https://figshare.com/articles/dataset/S1_Ageing_Study_Dataset_csv/14525487/2
-├── Cleaned_S1_Ageing_Study_Dataset_Cleaned.csv          # Cleaned data, preprocessed data after Data_prep_and_Q2_code.py
-├── Q1_code.py                    # Analysis code corresponding to Research Question Q1
-├── Q3_code.py                    # Analysis code corresponding to Research Question Q3
-├── Data_prep_and_Q2_code.py      # Data preprocessing script + analysis code for Research Question Q2
-├── LICENSE                       # MIT License file
-└── README.md                     # Project overview, usage instructions, contributors, license and other core information
+├── S1_Ageing_Study_Dataset.csv  # Raw unprocessed HIV patient dataset from Figshare
+├── Cleaned_S1_Ageing_Study_Dataset.csv  # Preprocessed data after Data_prep_and_Q2_code.py
+├── Q1_code.py  # Analysis code for Research Question Q1
+├── Q3_code.py  # Analysis code for Research Question Q3
+├── Data_prep_and_Q2_code.py  # Data preprocessing + Q2 analysis code
+├── LICENSE  # MIT License file
+└── README.md  # Project overview, dependencies, contributors and core info
 
 ## Dependencies
 - Python 3.10+
